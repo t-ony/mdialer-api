@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  mdialer-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ASTERISK_ARI_URL=${ASTERISK_ARI_URL:-http://asterisk:8088/ari}
+      - ASTERISK_ARI_USERNAME=${ASTERISK_ARI_USERNAME:-ari_user}
+      - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-ari_password}
+      - API_KEY=${API_KEY:-your-secure-api-key}
+      - DEV_API_KEY=${DEV_API_KEY:-dev-api-key}
+      - MOCK_TIMEOUT_MINUTES=${MOCK_TIMEOUT_MINUTES:-5}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Include Asterisk container for development
+  # asterisk:
+  #   image: asterisk:latest
+  #   ports:
+  #     - "8088:8088"
+  #   volumes:
+  #     - ./asterisk-config:/etc/asterisk
+  #   restart: unless-stopped
+
+volumes:
+  logs:
+
