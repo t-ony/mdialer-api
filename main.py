@@ -29,9 +29,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-ASTERISK_ARI_URL = os.getenv("ASTERISK_ARI_URL", "http://localhost:8088/ari")
-ASTERISK_ARI_USERNAME = os.getenv("ASTERISK_ARI_USERNAME", "ari_user")
-ASTERISK_ARI_PASSWORD = os.getenv("ASTERISK_ARI_PASSWORD", "ari_password")
+ASTERISK_AMI_HOST = os.getenv("ASTERISK_AMI_HOST", "host.docker.internal")
+ASTERISK_AMI_PORT = int(os.getenv("ASTERISK_AMI_PORT", "5038"))
+ASTERISK_AMI_USERNAME = os.getenv("ASTERISK_AMI_USERNAME", "admin")
+ASTERISK_AMI_PASSWORD = os.getenv("ASTERISK_AMI_PASSWORD", "amp111")
 API_KEY = os.getenv("API_KEY", "your-secure-api-key")
 DEV_API_KEY = os.getenv("DEV_API_KEY", "dev-api-key")
 MOCK_TIMEOUT_MINUTES = int(os.getenv("MOCK_TIMEOUT_MINUTES", "5"))
@@ -105,21 +106,109 @@ def cleanup_expired_mocks():
         logger.info(f"Expired mock entry removed: {key}")
 
 async def get_asterisk_channels() -> List[Dict[str, Any]]:
-    """Get active channels from Asterisk ARI"""
+    """Get active channels from Asterisk AMI"""
+    import asyncio
+    import socket
+    
     try:
-        auth = aiohttp.BasicAuth(ASTERISK_ARI_USERNAME, ASTERISK_ARI_PASSWORD)
-        async with aiohttp.ClientSession(auth=auth) as session:
-            async with session.get(f"{ASTERISK_ARI_URL}/channels") as response:
-                if response.status == 200:
-                    channels = await response.json()
-                    logger.info(f"Retrieved {len(channels)} channels from Asterisk")
-                    return channels
-                else:
-                    logger.error(f"Failed to get channels: HTTP {response.status}")
-                    return []
+        # Connect to AMI
+        reader, writer = await asyncio.open_connection(ASTERISK_AMI_HOST, ASTERISK_AMI_PORT)
+        
+        # Login to AMI
+        login_msg = (
+            f"Action: Login\r\n"
+            f"Username: {ASTERISK_AMI_USERNAME}\r\n"
+            f"Secret: {ASTERISK_AMI_PASSWORD}\r\n"
+            f"Events: off\r\n\r\n"
+        )
+        writer.write(login_msg.encode())
+        await writer.drain()
+        
+        # Read login response
+        login_response = await reader.read(1024)
+        if b"Success" not in login_response:
+            logger.error(f"AMI login failed: {login_response.decode()}")
+            writer.close()
+            await writer.wait_closed()
+            return []
+        
+        # Send CoreShowChannels command
+        channels_msg = (
+            f"Action: CoreShowChannels\r\n"
+            f"ActionID: channels123\r\n\r\n"
+        )
+        writer.write(channels_msg.encode())
+        await writer.drain()
+        
+        # Read response
+        channels_data = b""
+        while True:
+            chunk = await reader.read(4096)
+            if not chunk:
+                break
+            channels_data += chunk
+            # Check if we have complete response
+            if b"--END COMMAND--" in channels_data or b"Event: CoreShowChannelsComplete" in channels_data:
+                break
+        
+        # Logout
+        logout_msg = "Action: Logoff\r\n\r\n"
+        writer.write(logout_msg.encode())
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        
+        # Parse channel data
+        channels = parse_ami_channels(channels_data.decode())
+        logger.info(f"Retrieved {len(channels)} channels from Asterisk AMI")
+        return channels
+        
     except Exception as e:
-        logger.error(f"Error connecting to Asterisk ARI: {e}")
+        logger.error(f"Error connecting to Asterisk AMI: {e}")
         return []
+
+def parse_ami_channels(ami_data: str) -> List[Dict[str, Any]]:
+    """Parse AMI CoreShowChannels response into channel list"""
+    channels = []
+    
+    # Split by events
+    events = ami_data.split("Event: CoreShowChannel")
+    
+    for event in events[1:]:  # Skip first empty split
+        channel = {}
+        lines = event.strip().split('\r\n')
+        
+        for line in lines:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                # Map AMI fields to our expected format
+                if key == "Channel":
+                    channel["name"] = value
+                    channel["id"] = value
+                elif key == "ChannelState":
+                    channel["state"] = value
+                elif key == "ChannelStateDesc":
+                    channel["state_desc"] = value
+                elif key == "CallerIDNum":
+                    channel["caller"] = {"number": value}
+                elif key == "ConnectedLineNum":
+                    channel["connected"] = {"number": value}
+                elif key == "Exten":
+                    channel["dialplan"] = {"exten": value}
+                elif key == "Context":
+                    if "dialplan" not in channel:
+                        channel["dialplan"] = {}
+                    channel["dialplan"]["context"] = value
+                else:
+                    channel[key.lower()] = value
+        
+        if channel:  # Only add non-empty channels
+            channels.append(channel)
+    
+    return channels
 
 def match_channel(channel: Dict[str, Any], dialed_number: str, caller_id: Optional[str] = None) -> bool:
     """Check if channel matches the dialed number - comprehensive search through ALL channel fields"""
