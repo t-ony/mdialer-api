@@ -150,14 +150,28 @@ def match_channel(channel: Dict[str, Any], dialed_number: str, caller_id: Option
             asterisk_caller_last_digits = get_last_digits(caller_id_num)
             caller_id_match = caller_id_last_digits == asterisk_caller_last_digits
         
-        # Check if channel is in appropriate state (Up, Ringing, or Early Media)
-        valid_states = ['Up', 'Ringing', 'Ring', 'Early']
+        # Check if channel is in appropriate state (both early media and connected states)
+        valid_states = ['Up', 'Ringing', 'Ring', 'Early', 'Answered', 'Connected', 'Active', 'Bridged']
         state_match = any(state.lower() in channel_state.lower() for state in valid_states)
+        
+        # Log the channel state for debugging
+        logger.info(f"Channel {channel.get('id', 'unknown')} state: '{channel_state}' - Match: {state_match}")
         
         match_result = b_number_match and caller_id_match and state_match
         
+        # Enhanced logging for debugging
+        logger.info(f"Channel {channel.get('id', 'unknown')} matching details:")
+        logger.info(f"  - State: '{channel_state}' (valid: {state_match})")
+        logger.info(f"  - Dialed number match: {b_number_match} (looking for: {dialed_last_digits})")
+        logger.info(f"  - Connected line: '{connected_line}' -> {get_last_digits(connected_line) if connected_line else 'None'}")
+        logger.info(f"  - Extension: '{exten}' -> {get_last_digits(exten) if exten else 'None'}")
+        if caller_id:
+            logger.info(f"  - Caller ID match: {caller_id_match} (looking for: {get_last_digits(caller_id)})")
+            logger.info(f"  - Asterisk caller ID: '{caller_id_num}' -> {get_last_digits(caller_id_num) if caller_id_num else 'None'}")
+        logger.info(f"  - Overall match: {match_result}")
+        
         if match_result:
-            logger.info(f"Channel match found: {channel.get('id')} - State: {channel_state}")
+            logger.info(f"✅ Channel match found: {channel.get('id')} - State: {channel_state}")
         
         return match_result
         
