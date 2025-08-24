@@ -282,6 +282,12 @@ async def check_connection(
         # Query Asterisk ARI for active channels
         channels = await get_asterisk_channels()
         
+        # DEBUG: Log all channel data for troubleshooting
+        logger.info(f"=== DEBUG: All {len(channels)} channels on Asterisk ===")
+        for i, channel in enumerate(channels):
+            logger.info(f"Channel {i+1}: {channel}")
+        logger.info("=== END DEBUG ===")
+        
         # Find matching channel
         matching_channel = None
         for channel in channels:
