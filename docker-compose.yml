@@ -6,9 +6,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ASTERISK_ARI_URL=${ASTERISK_ARI_URL:-http://asterisk:8088/ari}
-      - ASTERISK_ARI_USERNAME=${ASTERISK_ARI_USERNAME:-ari_user}
-      - ASTERISK_ARI_PASSWORD=${ASTERISK_ARI_PASSWORD:-ari_password}
+      - ASTERISK_AMI_HOST=${ASTERISK_AMI_HOST:-host.docker.internal}
+      - ASTERISK_AMI_PORT=${ASTERISK_AMI_PORT:-5038}
+      - ASTERISK_AMI_USERNAME=${ASTERISK_AMI_USERNAME:-admin}
+      - ASTERISK_AMI_PASSWORD=${ASTERISK_AMI_PASSWORD:-amp111}
       - API_KEY=${API_KEY:-your-secure-api-key}
       - DEV_API_KEY=${DEV_API_KEY:-dev-api-key}
       - MOCK_TIMEOUT_MINUTES=${MOCK_TIMEOUT_MINUTES:-5}
@@ -26,7 +27,7 @@ services:
   # asterisk:
   #   image: asterisk:latest
   #   ports:
-  #     - "8088:8088"
+  #     - "5038:5038"  # AMI port
   #   volumes:
   #     - ./asterisk-config:/etc/asterisk
   #   restart: unless-stopped

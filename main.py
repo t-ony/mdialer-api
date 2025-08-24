@@ -316,7 +316,7 @@ async def check_connection(
                 timestamp=datetime.now().isoformat()
             )
         
-        # Query Asterisk ARI for active channels
+        # Query Asterisk AMI for active channels
         channels = await get_asterisk_channels()
         
         # DEBUG: Log all channel data for troubleshooting
@@ -432,34 +432,73 @@ async def disconnect_call(
                 number = parts[1]
                 if number in mock_store:
                     del mock_store[number]
-                    logger.info(f"Removed mock entry: {number}")
-            
-            return {
-                "message": "Mock call disconnected",
-                "channel_id": request.channel_id,
-                "timestamp": datetime.now().isoformat()
-            }
+             @app.delete("/disconnect-call")
+async def disconnect_call(
+    request: DisconnectRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Disconnect a call via Asterisk AMI
+    """
+    try:
+        # For mock channels, just remove from store
+        if request.channel_id.startswith("mock-"):
+            logger.info(f"Disconnecting mock channel: {request.channel_id}")
+            return {"message": "Mock call disconnected", "success": True}
         
-        # Disconnect real channel via ARI
-        auth = aiohttp.BasicAuth(ASTERISK_ARI_USERNAME, ASTERISK_ARI_PASSWORD)
-        async with aiohttp.ClientSession(auth=auth) as session:
-            async with session.delete(f"{ASTERISK_ARI_URL}/channels/{request.channel_id}") as response:
-                if response.status in [204, 404]:  # 204 = success, 404 = already gone
-                    logger.info(f"Channel disconnected: {request.channel_id}")
-                    return {
-                        "message": "Call disconnected successfully",
-                        "channel_id": request.channel_id,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                else:
-                    logger.error(f"Failed to disconnect channel: HTTP {response.status}")
-                    raise HTTPException(status_code=500, detail="Failed to disconnect call")
-                    
+        # Disconnect real channel via AMI
+        import asyncio
+        
+        # Connect to AMI
+        reader, writer = await asyncio.open_connection(ASTERISK_AMI_HOST, ASTERISK_AMI_PORT)
+        
+        # Login to AMI
+        login_msg = (
+            f"Action: Login\r\n"
+            f"Username: {ASTERISK_AMI_USERNAME}\r\n"
+            f"Secret: {ASTERISK_AMI_PASSWORD}\r\n"
+            f"Events: off\r\n\r\n"
+        )
+        writer.write(login_msg.encode())
+        await writer.drain()
+        
+        # Read login response
+        login_response = await reader.read(1024)
+        if b"Success" not in login_response:
+            logger.error(f"AMI login failed for disconnect: {login_response.decode()}")
+            writer.close()
+            await writer.wait_closed()
+            raise HTTPException(status_code=500, detail="Failed to connect to Asterisk")
+        
+        # Send Hangup command
+        hangup_msg = (
+            f"Action: Hangup\r\n"
+            f"Channel: {request.channel_id}\r\n"
+            f"ActionID: hangup123\r\n\r\n"
+        )
+        writer.write(hangup_msg.encode())
+        await writer.drain()
+        
+        # Read response
+        hangup_response = await reader.read(1024)
+        
+        # Logout
+        logout_msg = "Action: Logoff\r\n\r\n"
+        writer.write(logout_msg.encode())
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        
+        if b"Success" in hangup_response:
+            logger.info(f"Successfully disconnected channel: {request.channel_id}")
+            return {"message": "Call disconnected successfully", "success": True}
+        else:
+            logger.error(f"Failed to disconnect channel: {hangup_response.decode()}")
+            return {"message": "Failed to disconnect call", "success": False}
+            
     except Exception as e:
         logger.error(f"Error disconnecting call: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-# Get mock status endpoint
+        raise HTTPException(status_code=500, detail="Internal server error")t mock status endpoint
 @app.get("/mock-status")
 async def get_mock_status(api_key: str = Depends(verify_dev_api_key)):
     """
