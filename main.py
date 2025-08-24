@@ -294,6 +294,11 @@ async def check_connection(
             if match_channel(channel, normalized_dialed, caller_id):
                 matching_channel = channel
                 break
+            else:
+                # DEBUG: Log why this channel didn't match
+                logger.info(f"❌ Channel {channel.get('id', 'unknown')} did NOT match:")
+                logger.info(f"   Raw channel data: {channel}")
+                logger.info(f"   Looking for number ending in: {get_last_digits(normalized_dialed)}")
         
         if matching_channel:
             logger.info(f"Call found on Asterisk: {matching_channel.get('id')}")
@@ -304,7 +309,8 @@ async def check_connection(
                 timestamp=datetime.now().isoformat()
             )
         else:
-            logger.info(f"No matching call found for {dialed_last_digits}")
+            logger.info(f"❌ NO MATCHING CALL FOUND for {dialed_last_digits}")
+            logger.info(f"   Total channels checked: {len(channels)}")
             return ConnectionResponse(
                 connected=False,
                 channel_id=None,
