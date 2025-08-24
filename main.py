@@ -122,85 +122,33 @@ async def get_asterisk_channels() -> List[Dict[str, Any]]:
         return []
 
 def match_channel(channel: Dict[str, Any], dialed_number: str, caller_id: Optional[str] = None) -> bool:
-    """Check if channel matches the dialed number and caller ID - detects calls in ANY state on Asterisk"""
+    """Check if channel matches the dialed number - comprehensive search through ALL channel fields"""
     try:
-        # Get channel information
-        channel_id = channel.get('id', 'unknown')
-        channel_state = channel.get('state', '')
-        connected_line = channel.get('connected', {}).get('number', '')
-        caller_id_num = channel.get('caller', {}).get('number', '')
-        exten = channel.get('dialplan', {}).get('exten', '')
-        channel_name = channel.get('name', '')
+        import re
         
-        # Normalize numbers for comparison
+        channel_id = channel.get('id', 'unknown')
         dialed_last_digits = get_last_digits(dialed_number)
         
-        # Check B number (dialed number) in multiple places
-        b_number_match = False
-        match_source = ""
+        # Convert entire channel to string and search for the number
+        channel_str = str(channel)
         
-        # 1. Check connected line number
-        if connected_line:
-            connected_last_digits = get_last_digits(connected_line)
-            if dialed_last_digits == connected_last_digits:
-                b_number_match = True
-                match_source = f"connected_line({connected_line})"
+        # Extract ALL numbers from the entire channel data
+        all_numbers = re.findall(r'\d{7,}', channel_str)
         
-        # 2. Check dialplan extension
-        if not b_number_match and exten:
-            exten_last_digits = get_last_digits(exten)
-            if dialed_last_digits == exten_last_digits:
-                b_number_match = True
-                match_source = f"extension({exten})"
+        # Check if our target number (last 7 digits) appears anywhere
+        for num in all_numbers:
+            if get_last_digits(num) == dialed_last_digits:
+                logger.info(f"✅ CALL FOUND: {channel_id} - Number {dialed_last_digits} found as {num}")
+                logger.info(f"   Channel state: {channel.get('state', 'unknown')}")
+                logger.info(f"   Full channel: {channel}")
+                return True
         
-        # 3. Check caller ID number (in case it's the dialed number)
-        if not b_number_match and caller_id_num:
-            caller_last_digits = get_last_digits(caller_id_num)
-            if dialed_last_digits == caller_last_digits:
-                b_number_match = True
-                match_source = f"caller_id({caller_id_num})"
+        # If not found, log for debugging
+        logger.info(f"❌ Channel {channel_id} - Number {dialed_last_digits} NOT found")
+        logger.info(f"   Available numbers: {all_numbers}")
+        logger.info(f"   Channel state: {channel.get('state', 'unknown')}")
         
-        # 4. Check channel name for the number (common in Asterisk)
-        if not b_number_match and channel_name:
-            # Extract numbers from channel name (e.g., "SIP/19025809678-00000001")
-            import re
-            numbers_in_name = re.findall(r'\d{7,}', channel_name)
-            for num in numbers_in_name:
-                if get_last_digits(num) == dialed_last_digits:
-                    b_number_match = True
-                    match_source = f"channel_name({num})"
-                    break
-        
-        # Check caller ID if provided (for A number verification)
-        caller_id_match = True
-        if caller_id:
-            caller_id_last_digits = get_last_digits(caller_id)
-            asterisk_caller_last_digits = get_last_digits(caller_id_num)
-            caller_id_match = caller_id_last_digits == asterisk_caller_last_digits
-        
-        # Accept ANY channel state - if it exists on Asterisk, it's active
-        # Remove state filtering to detect calls in all states (early media, connected, playing audio, etc.)
-        state_match = True  # Accept all states
-        
-        match_result = b_number_match and caller_id_match and state_match
-        
-        # Enhanced logging for debugging
-        logger.info(f"Channel {channel_id} matching details:")
-        logger.info(f"  - State: '{channel_state}' (accepting all states)")
-        logger.info(f"  - Channel name: '{channel_name}'")
-        logger.info(f"  - Dialed number match: {b_number_match} via {match_source if b_number_match else 'NO_MATCH'}")
-        logger.info(f"  - Looking for last digits: {dialed_last_digits}")
-        logger.info(f"  - Connected line: '{connected_line}' -> {get_last_digits(connected_line) if connected_line else 'None'}")
-        logger.info(f"  - Extension: '{exten}' -> {get_last_digits(exten) if exten else 'None'}")
-        logger.info(f"  - Caller ID: '{caller_id_num}' -> {get_last_digits(caller_id_num) if caller_id_num else 'None'}")
-        if caller_id:
-            logger.info(f"  - Caller ID match: {caller_id_match} (looking for: {get_last_digits(caller_id)})")
-        logger.info(f"  - Overall match: {match_result}")
-        
-        if match_result:
-            logger.info(f"✅ CALL FOUND ON ASTERISK: {channel_id} - State: {channel_state} - Matched via: {match_source}")
-        
-        return match_result
+        return False
         
     except Exception as e:
         logger.error(f"Error matching channel: {e}")
