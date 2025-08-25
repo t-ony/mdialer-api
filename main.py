@@ -117,25 +117,41 @@ class AMIConnection:
             self.writer.write(login_msg.encode())
             await self.writer.drain()
             
-            # Read login response (may be multiple lines)
+            # Read login response with timeout
             login_response = b""
-            while True:
-                chunk = await self.reader.read(1024)
-                if not chunk:
-                    break
-                login_response += chunk
-                # Check if we have complete response (ends with double CRLF)
-                if b"\r\n\r\n" in login_response:
-                    break
+            timeout_count = 0
+            max_timeout = 10  # 10 iterations max
             
-            response_text = login_response.decode()
+            while timeout_count < max_timeout:
+                try:
+                    # Use wait_for with timeout to avoid hanging
+                    chunk = await asyncio.wait_for(self.reader.read(1024), timeout=1.0)
+                    if not chunk:
+                        break
+                    login_response += chunk
+                    
+                    # Check if we have complete response (ends with double CRLF)
+                    if b"\r\n\r\n" in login_response:
+                        break
+                        
+                except asyncio.TimeoutError:
+                    timeout_count += 1
+                    # If we have some data and it contains a response, break
+                    if login_response and (b"Response:" in login_response):
+                        break
+            
+            response_text = login_response.decode().strip()
             logger.info(f"AMI Login Response: {response_text}")
             
-            if "Response: Success" in response_text:
+            # Check for successful login
+            if "Response: Success" in response_text and "Authentication accepted" in response_text:
                 logger.info("Successfully connected to Asterisk AMI")
                 return True
+            elif "Response: Success" in response_text:
+                logger.info("Successfully connected to Asterisk AMI (basic success)")
+                return True
             else:
-                logger.error(f"AMI login failed: {response_text}")
+                logger.error(f"AMI login failed. Response: {response_text}")
                 await self.disconnect()
                 return False
                 
