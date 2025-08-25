@@ -103,6 +103,10 @@ class AMIConnection:
                 ASTERISK_AMI_HOST, ASTERISK_AMI_PORT
             )
             
+            # Read initial AMI banner
+            banner = await self.reader.read(1024)
+            logger.info(f"AMI Banner: {banner.decode().strip()}")
+            
             # Login to AMI
             login_msg = (
                 f"Action: Login\r\n"
@@ -113,16 +117,28 @@ class AMIConnection:
             self.writer.write(login_msg.encode())
             await self.writer.drain()
             
-            # Read login response
-            login_response = await self.reader.read(1024)
-            if b"Success" not in login_response:
-                logger.error(f"AMI login failed: {login_response.decode()}")
+            # Read login response (may be multiple lines)
+            login_response = b""
+            while True:
+                chunk = await self.reader.read(1024)
+                if not chunk:
+                    break
+                login_response += chunk
+                # Check if we have complete response (ends with double CRLF)
+                if b"\r\n\r\n" in login_response:
+                    break
+            
+            response_text = login_response.decode()
+            logger.info(f"AMI Login Response: {response_text}")
+            
+            if "Response: Success" in response_text:
+                logger.info("Successfully connected to Asterisk AMI")
+                return True
+            else:
+                logger.error(f"AMI login failed: {response_text}")
                 await self.disconnect()
                 return False
                 
-            logger.info("Successfully connected to Asterisk AMI")
-            return True
-            
         except Exception as e:
             logger.error(f"Error connecting to Asterisk AMI: {e}")
             return False
