@@ -447,5 +447,23 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    
+    # Check if SSL certificates are available for HTTPS
+    ssl_keyfile = os.getenv("SSL_KEYFILE", "/app/certs/key.pem")
+    ssl_certfile = os.getenv("SSL_CERTFILE", "/app/certs/cert.pem")
+    
+    # Use HTTPS if certificates exist, otherwise fall back to HTTP
+    if os.path.exists(ssl_keyfile) and os.path.exists(ssl_certfile):
+        logger.info("SSL certificates found - starting HTTPS server on port 8443")
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=int(os.getenv("HTTPS_PORT", "8443")),
+            ssl_keyfile=ssl_keyfile,
+            ssl_certfile=ssl_certfile
+        )
+    else:
+        logger.warning("SSL certificates not found - starting HTTP server on port 8000")
+        logger.warning("For production use, please configure SSL certificates")
+        uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("HTTP_PORT", "8000")))
 

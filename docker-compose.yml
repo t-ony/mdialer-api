@@ -4,7 +4,8 @@ services:
   mdialer-api:
     build: .
     ports:
-      - "8000:8000"
+      - "8000:8000"   # HTTP port
+      - "8443:8443"   # HTTPS port
     environment:
       - ASTERISK_AMI_HOST=${ASTERISK_AMI_HOST:-host.docker.internal}
       - ASTERISK_AMI_PORT=${ASTERISK_AMI_PORT:-5038}
@@ -13,8 +14,13 @@ services:
       - API_KEY=${API_KEY:-your-secure-api-key}
       - DEV_API_KEY=${DEV_API_KEY:-dev-api-key}
       - MOCK_TIMEOUT_MINUTES=${MOCK_TIMEOUT_MINUTES:-5}
+      - HTTP_PORT=${HTTP_PORT:-8000}
+      - HTTPS_PORT=${HTTPS_PORT:-8443}
+      - SSL_KEYFILE=${SSL_KEYFILE:-/app/certs/key.pem}
+      - SSL_CERTFILE=${SSL_CERTFILE:-/app/certs/cert.pem}
     volumes:
       - ./logs:/app/logs
+      - ./certs:/app/certs:ro  # Mount SSL certificates (read-only)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
